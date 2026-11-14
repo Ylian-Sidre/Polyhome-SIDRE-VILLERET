@@ -1,6 +1,7 @@
 package com.villeret.polyhome_sidre_villeret
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -26,15 +27,18 @@ import java.util.concurrent.TimeUnit
 import java.time.LocalDate
 import java.time.LocalDateTime
 
-
 class UsersActivity : AppCompatActivity() {
 
     private val api = Api()
     private val usersArray = ArrayList<UsersData>()
     private lateinit var userAdapter: UsersAdapter
+    private lateinit var tempUserAdapter: UsersAdapter
 
+    private var showOnlyTemporary = false
+    private val tempUsersArray = ArrayList<UsersData>()
     private var expirationDate: String? = null
 
+    @SuppressLint("UseSwitchCompatOrMaterialCode")
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,9 +59,17 @@ class UsersActivity : AppCompatActivity() {
         val calendar = findViewById<CalendarView>(R.id.calendarViewTempUserUsersActivity)
         calendar.visibility = View.GONE
 
+        val filterSwitch = findViewById<Switch>(R.id.switchFilterTempUserUsersActivity)
+        if (filterSwitch.isChecked) {
+            showOnlyTemporary = true
+            updateDisplayedUsers(id, token.toString())
+        }
+
+
         initializeAddUserButton(id, token.toString())
         initializeBackButton()
         setupTemporarySwitch()
+        setupTempUserSwitch(id, token.toString())
     }
 
     // fonction pour récupérer les utilisateurs avec un appel API
@@ -67,11 +79,17 @@ class UsersActivity : AppCompatActivity() {
         // Appel API pour récupérer les utilisateurs d'une maison
         api.get<List<UsersData>>(url, { code, users ->
             if (code == 200 && users != null && users.isNotEmpty()) {
+                usersArray.clear()
                 for (element in users) {
                     // On ajoute chaque utlisateur à notre tableau d'utilisateurs
                     usersArray.add(element)
+                    Log.d("POLYHOME_USERS_LIST_ELEMENT_ADD", "Users List : $element")
                 }
                 Log.d("POLYHOME_USERS_LIST", "Users List : $usersArray")
+
+                runOnUiThread {
+                    updateDisplayedUsers(houseId, token)
+                }
 
                 if(usersArray != emptyArray<UsersData>()) {
                     // On utilise runOnUiThread car cela permet de lancer initializeUsersList() sur le thread principal
@@ -93,9 +111,16 @@ class UsersActivity : AppCompatActivity() {
     private fun initializeUsersList() {
         // Récupère la vue de la liste dans le layout
         val listView = findViewById<ListView>(R.id.usersListViewUsersActivity)
-        Log.d("POLYHOME_HOUSE_ADAPTER", "House Adapter list  : $userAdapter")
         // Lie l'adapter à la ListView pour afficher les maisons
-        listView.adapter = userAdapter
+
+        if (!showOnlyTemporary ) {
+            listView.adapter = userAdapter
+            Log.d("POLYHOME_HOUSE_ADAPTER", "House Adapter list  : $userAdapter")
+        }
+        else {
+            listView.adapter = tempUserAdapter
+            Log.d("POLYHOME_HOUSE_TEMPUSER_ADAPTER", "House Adapter list TEMP USER  : $userAdapter")
+        }
 
     }
 
@@ -129,10 +154,12 @@ class UsersActivity : AppCompatActivity() {
 
             // LOGIQUE POUR LES UTLISATEURS TEMPORAIRES
             // Si expirationDate a une valeur est est non nulle, ça veut dire que le switch temporaire est checked
-            // Donc le calendrier est ouvert et une date est choisi, donc on fait appel à la focntion scheduleUserDeletion, on s'assure que targetDate est non null quand même
+            // Donc le calendrier est ouvert et une date est choisie, donc on fait appel à la focntion scheduleUserDeletion, on s'assure que targetDate est non null quand même
             if (expirationDate != null) {
                 Log.d("POLYHOME_DATE", "scheduleUserDeletion")
-                scheduleUserDeletion(findViewById<EditText>(R.id.newUserEditTextUsersActivity).text.toString(), houseId, securityToken,
+                val userName = findViewById<EditText>(R.id.newUserEditTextUsersActivity).text.toString()
+                saveTemporaryUser(houseId, userName, expirationDate!!)
+                scheduleUserDeletion(userName, houseId, securityToken,
                     expirationDate!!
                 )
             }
@@ -159,6 +186,12 @@ class UsersActivity : AppCompatActivity() {
         backButton.setOnClickListener {
             finish()
         }
+    }
+
+    // Sauvegarder un utilisateur temporaire localement
+    private fun saveTemporaryUser(houseId: String, userName: String, expiration: String) {
+        val prefs = getSharedPreferences("PolyhomeTempUsers_$houseId", Context.MODE_PRIVATE)
+        prefs.edit().putString(userName, expiration).apply()
     }
 
     @SuppressLint("UseSwitchCompatOrMaterialCode")
@@ -195,6 +228,26 @@ class UsersActivity : AppCompatActivity() {
             } else {
                 calendar.visibility = View.GONE
                 expirationDate = null
+            }
+        }
+
+
+    }
+
+    @SuppressLint("UseSwitchCompatOrMaterialCode")
+    private fun setupTempUserSwitch(houseId: String, token: String) {
+        val tempSwitch = findViewById<Switch>(R.id.switchFilterTempUserUsersActivity)
+
+        tempSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                val filterSwitch = findViewById<Switch>(R.id.switchFilterTempUserUsersActivity)
+                if (filterSwitch.isChecked) {
+                    showOnlyTemporary = true
+                    updateDisplayedUsers(houseId, token.toString())
+                }
+            } else {
+                showOnlyTemporary = false
+                updateDisplayedUsers(houseId, token.toString())
             }
         }
 
@@ -272,6 +325,28 @@ class UsersActivity : AppCompatActivity() {
             }
 
         Log.d("POLYHOME_DATE", "Envoi dans le workManager")
+    }
+
+    private fun updateDisplayedUsers(houseId: String, token: String) {
+        tempUsersArray.clear()
+        val prefs = getSharedPreferences("PolyhomeTempUsers_$houseId", Context.MODE_PRIVATE)
+
+        for (user in usersArray) {
+            val isTemp = prefs.contains(user.userLogin)
+            if (isTemp) {
+                tempUsersArray.add(user)
+            }
+        }
+
+        Log.d("POLYHOME_TEMP_USER_LIST", "LIST TEMP USER : $tempUsersArray")
+
+        if (!::userAdapter.isInitialized || !::tempUserAdapter.isInitialized) {
+            tempUserAdapter = UsersAdapter(this, tempUsersArray, houseId, token)
+            userAdapter = UsersAdapter(this, usersArray, houseId, token)
+            initializeUsersList()
+        } else {
+            initializeUsersList()
+        }
     }
 
 }
