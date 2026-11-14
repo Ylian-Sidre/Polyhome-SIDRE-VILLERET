@@ -8,6 +8,7 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
+import androidx.core.content.edit
 
 class DeleteUserWorker(context: Context, workerParams: WorkerParameters) : CoroutineWorker(context, workerParams) {
     // Worker gérant la suppression d'un utilisateur via l'API
@@ -39,6 +40,9 @@ class DeleteUserWorker(context: Context, workerParams: WorkerParameters) : Corou
                     if (code == 200) {
                         // Succès
                         Log.d("REMOVE_USER", "WORKER")
+                        val prefs = applicationContext.getSharedPreferences("PolyhomeTempUsers_$houseId", Context.MODE_PRIVATE)
+                        prefs.edit { remove(userName) }
+
                         continuation.resume(Result.success())
                     } else if (code == 500){
                         // Erreur réseau ou serveur, on relance
