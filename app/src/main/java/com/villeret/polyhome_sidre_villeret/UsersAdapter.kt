@@ -42,12 +42,21 @@ class UsersAdapter(private val context: Context, private val users: ArrayList<Us
         val ownerValue = rowView.findViewById<TextView>(R.id.ownerValueTextViewUserList)
         val removeBtn = rowView.findViewById<Button>(R.id.deleteUserButtonUserList)
 
+        val currentUser = users[position]
         userLogin.text = users[position].userLogin
 
         Log.d("POLYHOME_USER", "owner ? ${users[position].owner}")
 
-        // Si la valeur du owner du User est 1 c'est le propriétaire sinon c'est une personne tiers auquel on a donné l'accès
-        if (users[position].owner.toString() == "1") {
+        // Vérification du statut temporaire dans le stockage local du device
+        val prefs = context.getSharedPreferences("PolyhomeTempUsers_$houseID", Context.MODE_PRIVATE)
+        val expirationDate = prefs.getString(currentUser.userLogin, null)
+
+        if (expirationDate != null) {
+            // Affichage visuel spécifique pour l'utilisateur temporaire
+            ownerValue.text = "Temporaire (Expire le $expirationDate)"
+            removeBtn.visibility = View.VISIBLE
+            // Si la valeur du owner du User est 1 c'est le propriétaire sinon c'est une personne tiers auquel on a donné l'accès
+        } else if (users[position].owner.toString() == "1") {
             ownerValue.text = "Propriétaire"
             // Par sécurité pour éviter de supprimer le propriétaire d'une maison, on cache le bouton de l'activité
             removeBtn.visibility = View.GONE
@@ -62,7 +71,7 @@ class UsersAdapter(private val context: Context, private val users: ArrayList<Us
             val data = UserLogin(users[position].userLogin)
 
             // Deuxième sécurité pour éviter de supprimer un propriétaire
-            // Cette sécurité peut être superflu mais imaginons que le bouton supprimer soit toujours clickable, cela évite la suppression
+            // Cette sécurité peut être superflu mais imaginons que le bouton supprimé soit toujours clickable, cela évite la suppression
             if (users[position].owner.toString() != "1") {
                 // Appel API pour supprimer un utilisateur
                 api.delete(
@@ -70,6 +79,8 @@ class UsersAdapter(private val context: Context, private val users: ArrayList<Us
                         if (code == 200) {
                             // On enlève l'utilisateur de notre liste d'utilisateur
                             users.removeAt(position)
+
+                            prefs.edit().remove(currentUser.userLogin).apply()
 
                             // On force l'execution sur le thread principal
                             // car notifyDataSetChanged() ne peut pas être appelé depuis un thread secondaire
